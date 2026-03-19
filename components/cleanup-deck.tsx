@@ -5,6 +5,7 @@ import { DeletionLogItem, SimplifiedCompany } from "@/lib/types";
 
 const LOAD_THRESHOLD = 5;
 const SWIPE_THRESHOLD = 110;
+const DESKTOP_MEDIA_QUERY = "(min-width: 981px)";
 
 type DragState = {
   pointerId: number;
@@ -27,6 +28,7 @@ export function CleanupDeck() {
   const hiddenIdsRef = useRef<Set<string>>(new Set());
   const isLoadingRef = useRef(false);
   const isSwipingRef = useRef(false);
+  const isDesktopRef = useRef(false);
 
   useEffect(() => {
     deckRef.current = deck;
@@ -50,15 +52,36 @@ export function CleanupDeck() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const updateDesktopState = () => {
+      isDesktopRef.current = mediaQuery.matches;
+    };
+
+    updateDesktopState();
+    mediaQuery.addEventListener("change", updateDesktopState);
+    return () => mediaQuery.removeEventListener("change", updateDesktopState);
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!isDesktopRef.current) {
+        return;
+      }
+
       const target = event.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) {
         return;
       }
       if (event.key === "ArrowLeft") {
+        event.preventDefault();
         void handleSwipe("delete");
       }
       if (event.key === "ArrowRight") {
+        event.preventDefault();
         void handleSwipe("keep");
       }
     };
