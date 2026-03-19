@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { DeletionLogItem, SimplifiedCompany } from "@/lib/types";
 
 const LOAD_THRESHOLD = 5;
@@ -24,6 +24,26 @@ export function CleanupDeck() {
   const dragStateRef = useRef<DragState | null>(null);
   const dragXRef = useRef(0);
   const toastTimerRef = useRef<number | null>(null);
+  const deckRef = useRef<SimplifiedCompany[]>([]);
+  const nextOffsetRef = useRef<string | null>(null);
+  const isLoadingRef = useRef(false);
+  const isSwipingRef = useRef(false);
+
+  useEffect(() => {
+    deckRef.current = deck;
+  }, [deck]);
+
+  useEffect(() => {
+    nextOffsetRef.current = nextOffset;
+  }, [nextOffset]);
+
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  useEffect(() => {
+    isSwipingRef.current = isSwiping;
+  }, [isSwiping]);
 
   useEffect(() => {
     refreshLog();
@@ -50,13 +70,14 @@ export function CleanupDeck() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [deck, isSwiping]);
+  }, []);
 
   async function loadCompanies(reset = false) {
-    if (isLoading) {
+    if (isLoadingRef.current) {
       return;
     }
 
+    isLoadingRef.current = true;
     setIsLoading(true);
     if (reset) {
       setStatus("Loading companies from Attio...");
@@ -69,7 +90,7 @@ export function CleanupDeck() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          offset: reset ? null : nextOffset,
+          offset: reset ? null : nextOffsetRef.current,
         }),
       });
 
@@ -84,16 +105,20 @@ export function CleanupDeck() {
       }
 
       const companies = payload.companies ?? [];
-      setDeck((current) => (reset ? companies : [...current, ...companies]));
+      const nextDeck = reset ? companies : [...deckRef.current, ...companies];
+      deckRef.current = nextDeck;
+      nextOffsetRef.current = payload.nextOffset ?? null;
+      setDeck(nextDeck);
       setNextOffset(payload.nextOffset ?? null);
       setStatus(
-        companies.length || (!reset && deck.length)
+        nextDeck.length
           ? "Swipe left to delete. Swipe right to keep."
           : "No companies came back from Attio.",
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to load companies.");
     } finally {
+      isLoadingRef.current = false;
       setIsLoading(false);
     }
   }
@@ -129,14 +154,41 @@ export function CleanupDeck() {
   }
 
   async function handleSwipe(action: "keep" | "delete") {
-    if (!deck.length || isSwiping) {
+    if (!deckRef.current.length || isSwipingRef.current) {
       return;
     }
 
-    const company = deck[0];
+    const company = deckRef.current[0];
+    const remainingDeck = deckRef.current.slice(1);
+    const previousDeck = deckRef.current;
+
+    isSwipingRef.current = true;
     setIsSwiping(true);
     setDragX(action === "delete" ? -540 : 540);
     dragXRef.current = action === "delete" ? -540 : 540;
+
+    window.setTimeout(() => {
+      dragXRef.current = 0;
+      setDragX(0);
+    }, 120);
+
+    deckRef.current = remainingDeck;
+    startTransition(() => {
+      setDeck(remainingDeck);
+    });
+    setStatus(action === "delete" ? `${company.name} deleted.` : `${company.name} kept.`);
+
+    if (action === "delete") {
+      setDeletedCount((count) => count + 1);
+      showToast(`Deleted ${company.name}`);
+      void refreshLog();
+    } else {
+      showToast(`Kept ${company.name}`);
+    }
+
+    if (remainingDeck.length < LOAD_THRESHOLD && nextOffsetRef.current) {
+      void loadCompanies(false);
+    }
 
     try {
       const response = await fetch("/api/swipe", {
@@ -154,28 +206,19 @@ export function CleanupDeck() {
       if (!response.ok) {
         throw new Error(payload.error || "Unable to process swipe.");
       }
-
-      setDeck((current) => current.slice(1));
-      setDragX(0);
-      dragXRef.current = 0;
-      setStatus(action === "delete" ? `${company.name} deleted.` : `${company.name} kept.`);
-
       if (action === "delete") {
-        setDeletedCount((count) => count + 1);
-        showToast(`Deleted ${company.name}`);
-        await refreshLog();
-      } else {
-        showToast(`Kept ${company.name}`);
-      }
-
-      if (deck.length - 1 < LOAD_THRESHOLD && nextOffset) {
-        void loadCompanies(false);
+        void refreshLog();
       }
     } catch (error) {
-      setDragX(0);
+      deckRef.current = previousDeck;
+      setDeck(previousDeck);
+      if (action === "delete") {
+        setDeletedCount((count) => Math.max(0, count - 1));
+      }
       dragXRef.current = 0;
       setStatus(error instanceof Error ? error.message : "Unable to process swipe.");
     } finally {
+      isSwipingRef.current = false;
       setIsSwiping(false);
     }
   }
@@ -189,7 +232,7 @@ export function CleanupDeck() {
   }
 
   function onPointerDown(event: React.PointerEvent<HTMLElement>) {
-    if (isSwiping || !deck.length) {
+    if (isSwipingRef.current || !deckRef.current.length) {
       return;
     }
 
@@ -202,7 +245,7 @@ export function CleanupDeck() {
 
   function onPointerMove(event: React.PointerEvent<HTMLElement>) {
     const dragState = dragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId || isSwiping) {
+    if (!dragState || dragState.pointerId !== event.pointerId || isSwipingRef.current) {
       return;
     }
 
@@ -230,6 +273,12 @@ export function CleanupDeck() {
       return;
     }
 
+    setDragX(0);
+    dragXRef.current = 0;
+  }
+
+  function onPointerCancel() {
+    dragStateRef.current = null;
     setDragX(0);
     dragXRef.current = 0;
   }
@@ -334,6 +383,7 @@ export function CleanupDeck() {
                   onPointerDown={onPointerDown}
                   onPointerMove={onPointerMove}
                   onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerCancel}
                 />
               ) : (
                 <EmptyCard />
@@ -377,12 +427,14 @@ function TopCard({
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onPointerCancel,
 }: {
   company: SimplifiedCompany;
   style: React.CSSProperties;
   onPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
   onPointerMove: (event: React.PointerEvent<HTMLElement>) => void;
   onPointerUp: (event: React.PointerEvent<HTMLElement>) => void;
+  onPointerCancel: () => void;
 }) {
   return (
     <article
@@ -391,6 +443,7 @@ function TopCard({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
     >
       <CardContent company={company} />
     </article>
