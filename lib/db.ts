@@ -45,6 +45,7 @@ export async function ensureDeletionLogTable() {
 export async function insertDeletion(company: SimplifiedCompany) {
   await ensureDeletionLogTable();
   const sql = getSql();
+  const rawPayload = JSON.parse(JSON.stringify(company.raw)) as Parameters<typeof sql.json>[0];
 
   await sql`
     insert into deleted_companies (
@@ -58,7 +59,7 @@ export async function insertDeletion(company: SimplifiedCompany) {
       ${company.name},
       ${company.domain || null},
       ${company.webUrl || null},
-      ${sql.json(company.raw)}
+      ${sql.json(rawPayload)}
     )
   `;
 }
