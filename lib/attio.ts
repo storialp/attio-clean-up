@@ -108,6 +108,29 @@ export async function queryCompanies(apiKey: string, offset?: string | null) {
   };
 }
 
+export async function fetchAllCompanies(apiKey: string) {
+  const companies: SimplifiedCompany[] = [];
+  const seenIds = new Set<string>();
+  let offset: string | null = null;
+
+  for (;;) {
+    const page = await queryCompanies(apiKey, offset);
+    for (const company of page.companies) {
+      if (!seenIds.has(company.id)) {
+        seenIds.add(company.id);
+        companies.push(company);
+      }
+    }
+
+    if (!page.nextOffset) {
+      break;
+    }
+    offset = page.nextOffset;
+  }
+
+  return companies;
+}
+
 export async function deleteCompany(apiKey: string, recordId: string) {
   const response = await fetch(`${ATTIO_BASE_URL}/objects/companies/records/${recordId}`, {
     method: "DELETE",

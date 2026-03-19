@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { DeletionLogItem, SimplifiedCompany } from "@/lib/types";
+import { CachedCompanyStatus, DeletionLogItem, SimplifiedCompany } from "@/lib/types";
 
 let initialized = false;
 let sqlClient: ReturnType<typeof postgres> | null = null;
@@ -29,6 +29,24 @@ export async function ensureDeletionLogTable() {
 
   const sql = getSql();
   await sql`
+    create table if not exists cached_companies (
+      record_id text primary key,
+      company_name text not null,
+      primary_domain text,
+      description text,
+      employee_range text,
+      tags jsonb not null default '[]'::jsonb,
+      attio_url text,
+      status text not null default 'pending',
+      raw_payload jsonb not null,
+      synced_at timestamptz not null default now()
+    )
+  `;
+  await sql`
+    create index if not exists cached_companies_status_idx
+    on cached_companies (status)
+  `;
+  await sql`
     create table if not exists deleted_companies (
       id bigserial primary key,
       record_id text not null,
@@ -40,6 +58,105 @@ export async function ensureDeletionLogTable() {
     )
   `;
   initialized = true;
+}
+
+export async function upsertCachedCompanies(companies: SimplifiedCompany[]) {
+  await ensureDeletionLogTable();
+  if (!companies.length) {
+    return;
+  }
+
+  const sql = getSql();
+  await sql.begin(async (transaction) => {
+    for (const company of companies) {
+      const rawPayload = JSON.parse(JSON.stringify(company.raw)) as Parameters<typeof sql.json>[0];
+      await transaction`
+        insert into cached_companies (
+          record_id,
+          company_name,
+          primary_domain,
+          description,
+          employee_range,
+          tags,
+          attio_url,
+          raw_payload
+        ) values (
+          ${company.id},
+          ${company.name},
+          ${company.domain || null},
+          ${company.description || null},
+          ${company.employeeRange || null},
+          ${transaction.json(company.tags)},
+          ${company.webUrl || null},
+          ${transaction.json(rawPayload)}
+        )
+        on conflict (record_id) do update set
+          company_name = excluded.company_name,
+          primary_domain = excluded.primary_domain,
+          description = excluded.description,
+          employee_range = excluded.employee_range,
+          tags = excluded.tags,
+          attio_url = excluded.attio_url,
+          raw_payload = excluded.raw_payload,
+          synced_at = now()
+      `;
+    }
+  });
+}
+
+export async function listPendingCompanies(limit = 25, excludeIds: string[] = []): Promise<SimplifiedCompany[]> {
+  await ensureDeletionLogTable();
+  const sql = getSql();
+
+  const rows = await sql<
+    Array<{
+      record_id: string;
+      company_name: string;
+      primary_domain: string | null;
+      description: string | null;
+      employee_range: string | null;
+      tags: string[] | null;
+      attio_url: string | null;
+      raw_payload: Record<string, unknown>;
+    }>
+  >`
+    select
+      record_id,
+      company_name,
+      primary_domain,
+      description,
+      employee_range,
+      tags,
+      attio_url,
+      raw_payload
+    from cached_companies
+    where status = 'pending'
+      ${excludeIds.length ? sql`and not (record_id = any(${sql.array(excludeIds, "text")}))` : sql``}
+    order by random()
+    limit ${limit}
+  `;
+
+  return rows.map((row) => ({
+    id: row.record_id,
+    name: row.company_name,
+    domain: row.primary_domain || "",
+    description: row.description || "",
+    employeeRange: row.employee_range || "Unknown",
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    webUrl: row.attio_url || "",
+    raw: row.raw_payload || {},
+  }));
+}
+
+export async function updateCachedCompanyStatus(recordId: string, status: CachedCompanyStatus) {
+  await ensureDeletionLogTable();
+  const sql = getSql();
+
+  await sql`
+    update cached_companies
+    set status = ${status}
+    where record_id = ${recordId}
+  `;
 }
 
 export async function insertDeletion(company: SimplifiedCompany) {

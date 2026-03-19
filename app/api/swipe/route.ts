@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteCompany } from "@/lib/attio";
-import { insertDeletion } from "@/lib/db";
+import { insertDeletion, updateCachedCompanyStatus } from "@/lib/db";
 import { SimplifiedCompany } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "keep") {
+      await updateCachedCompanyStatus(company.id, "kept");
       return NextResponse.json({ ok: true, action: "keep" });
     }
 
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     await deleteCompany(apiKey, company.id);
+    await updateCachedCompanyStatus(company.id, "deleted");
     await insertDeletion(company);
 
     return NextResponse.json({ ok: true, action: "delete" });

@@ -3,6 +3,7 @@
 A Next.js app that:
 
 - reads your Attio API key from server environment variables
+- syncs Attio companies into Postgres on load
 - shows companies one at a time in a Tinder-style deck
 - swipes left to delete
 - swipes right to keep
@@ -42,5 +43,6 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - The app does not persist the Attio API key in the database.
 - The Attio key stays server-side and is never exposed in the client UI.
-- The `deleted_companies` table is created automatically on first use.
+- The `cached_companies` and `deleted_companies` tables are created automatically on first use.
+- Kept and deleted companies are marked in the cache so they do not keep reappearing.
 - If your database provider does not expose `POSTGRES_URL`, you can use `DATABASE_URL` instead.

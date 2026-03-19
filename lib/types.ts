@@ -17,3 +17,5 @@ export type DeletionLogItem = {
   deletedAt: string;
   attioUrl: string | null;
 };
+
+export type CachedCompanyStatus = "pending" | "kept" | "deleted";

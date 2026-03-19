@@ -13,7 +13,6 @@ type DragState = {
 
 export function CleanupDeck() {
   const [deck, setDeck] = useState<SimplifiedCompany[]>([]);
-  const [nextOffset, setNextOffset] = useState<string | null>(null);
   const [deletedCount, setDeletedCount] = useState(0);
   const [status, setStatus] = useState("Load companies to start reviewing your Attio workspace.");
   const [logItems, setLogItems] = useState<DeletionLogItem[]>([]);
@@ -25,17 +24,12 @@ export function CleanupDeck() {
   const dragXRef = useRef(0);
   const toastTimerRef = useRef<number | null>(null);
   const deckRef = useRef<SimplifiedCompany[]>([]);
-  const nextOffsetRef = useRef<string | null>(null);
   const isLoadingRef = useRef(false);
   const isSwipingRef = useRef(false);
 
   useEffect(() => {
     deckRef.current = deck;
   }, [deck]);
-
-  useEffect(() => {
-    nextOffsetRef.current = nextOffset;
-  }, [nextOffset]);
 
   useEffect(() => {
     isLoadingRef.current = isLoading;
@@ -90,13 +84,13 @@ export function CleanupDeck() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          offset: reset ? null : nextOffsetRef.current,
+          sync: reset,
+          excludeIds: reset ? [] : deckRef.current.map((company) => company.id),
         }),
       });
 
       const payload = (await response.json()) as {
         companies?: SimplifiedCompany[];
-        nextOffset?: string | null;
         error?: string;
       };
 
@@ -107,9 +101,7 @@ export function CleanupDeck() {
       const companies = payload.companies ?? [];
       const nextDeck = reset ? companies : [...deckRef.current, ...companies];
       deckRef.current = nextDeck;
-      nextOffsetRef.current = payload.nextOffset ?? null;
       setDeck(nextDeck);
-      setNextOffset(payload.nextOffset ?? null);
       setStatus(
         nextDeck.length
           ? "Swipe left to delete. Swipe right to keep."
@@ -146,7 +138,6 @@ export function CleanupDeck() {
   async function handleLoadSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setDeck([]);
-    setNextOffset(null);
     setDragX(0);
     dragXRef.current = 0;
     await loadCompanies(true);
@@ -186,7 +177,7 @@ export function CleanupDeck() {
       showToast(`Kept ${company.name}`);
     }
 
-    if (remainingDeck.length < LOAD_THRESHOLD && nextOffsetRef.current) {
+    if (remainingDeck.length < LOAD_THRESHOLD) {
       void loadCompanies(false);
     }
 
