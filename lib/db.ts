@@ -67,41 +67,39 @@ export async function upsertCachedCompanies(companies: SimplifiedCompany[]) {
   }
 
   const sql = getSql();
-  await sql.begin(async (transaction) => {
-    for (const company of companies) {
-      const rawPayload = JSON.parse(JSON.stringify(company.raw)) as Parameters<typeof sql.json>[0];
-      await transaction`
-        insert into cached_companies (
-          record_id,
-          company_name,
-          primary_domain,
-          description,
-          employee_range,
-          tags,
-          attio_url,
-          raw_payload
-        ) values (
-          ${company.id},
-          ${company.name},
-          ${company.domain || null},
-          ${company.description || null},
-          ${company.employeeRange || null},
-          ${transaction.json(company.tags)},
-          ${company.webUrl || null},
-          ${transaction.json(rawPayload)}
-        )
-        on conflict (record_id) do update set
-          company_name = excluded.company_name,
-          primary_domain = excluded.primary_domain,
-          description = excluded.description,
-          employee_range = excluded.employee_range,
-          tags = excluded.tags,
-          attio_url = excluded.attio_url,
-          raw_payload = excluded.raw_payload,
-          synced_at = now()
-      `;
-    }
-  });
+  for (const company of companies) {
+    const rawPayload = JSON.parse(JSON.stringify(company.raw)) as Parameters<typeof sql.json>[0];
+    await sql`
+      insert into cached_companies (
+        record_id,
+        company_name,
+        primary_domain,
+        description,
+        employee_range,
+        tags,
+        attio_url,
+        raw_payload
+      ) values (
+        ${company.id},
+        ${company.name},
+        ${company.domain || null},
+        ${company.description || null},
+        ${company.employeeRange || null},
+        ${sql.json(company.tags)},
+        ${company.webUrl || null},
+        ${sql.json(rawPayload)}
+      )
+      on conflict (record_id) do update set
+        company_name = excluded.company_name,
+        primary_domain = excluded.primary_domain,
+        description = excluded.description,
+        employee_range = excluded.employee_range,
+        tags = excluded.tags,
+        attio_url = excluded.attio_url,
+        raw_payload = excluded.raw_payload,
+        synced_at = now()
+    `;
+  }
 }
 
 export async function listPendingCompanies(limit = 25, excludeIds: string[] = []): Promise<SimplifiedCompany[]> {
