@@ -41,7 +41,7 @@ export function CleanupDeck() {
   }, [isSwiping]);
 
   useEffect(() => {
-    refreshLog();
+    void bootstrapFeed();
     return () => {
       if (toastTimerRef.current) {
         window.clearTimeout(toastTimerRef.current);
@@ -67,15 +67,21 @@ export function CleanupDeck() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  async function loadCompanies(reset = false) {
+  async function loadCompanies({
+    reset = false,
+    sync = false,
+  }: {
+    reset?: boolean;
+    sync?: boolean;
+  } = {}) {
     if (isLoadingRef.current) {
       return;
     }
 
     isLoadingRef.current = true;
     setIsLoading(true);
-    if (reset) {
-      setStatus("Loading companies from Attio...");
+    if (sync) {
+      setStatus("Syncing companies from Attio...");
     }
 
     try {
@@ -85,7 +91,7 @@ export function CleanupDeck() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sync: reset,
+          sync,
           excludeIds: [
             ...new Set([
               ...(reset ? [] : deckRef.current.map((company) => company.id)),
@@ -146,15 +152,29 @@ export function CleanupDeck() {
     }
   }
 
-  async function handleLoadSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function bootstrapFeed(sync = true) {
     hiddenIdsRef.current = new Set();
     deckRef.current = [];
     setDeck([]);
     setDragX(0);
     dragXRef.current = 0;
-    await loadCompanies(true);
-    await refreshLog();
+    await Promise.all([loadCompanies({ reset: true, sync }), refreshLog()]);
+  }
+
+  async function handleResyncFeed() {
+    await bootstrapFeed(true);
+  }
+
+  async function handleLoadSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await handleResyncFeed();
+  }
+
+  async function topUpDeck() {
+    await loadCompanies({ reset: false, sync: false });
+    if (!deckRef.current.length) {
+      await loadCompanies({ reset: false, sync: true });
+    }
   }
 
   async function handleSwipe(action: "keep" | "delete") {
@@ -192,7 +212,7 @@ export function CleanupDeck() {
     }
 
     if (remainingDeck.length < LOAD_THRESHOLD) {
-      void loadCompanies(false);
+      void topUpDeck();
     }
 
     try {
@@ -301,14 +321,14 @@ export function CleanupDeck() {
     <main className="page-shell">
       <aside className="side-panel">
         <p className="eyebrow">Attio Cleanup Deck</p>
-        <h1>Swipe through companies like a live deletion queue.</h1>
+        <h1>Swipe through companies like a live cleanup feed.</h1>
         <p className="lede">
-          Left deletes the record in Attio and writes a Postgres audit log. Right keeps it and moves on.
+          Left deletes the record in Attio and writes a Postgres audit log. Right keeps it and the feed keeps moving.
         </p>
 
         <form className="api-form" onSubmit={handleLoadSubmit}>
           <button type="submit" disabled={isLoading}>
-            {isLoading ? "Loading..." : "Load companies"}
+            {isLoading ? "Syncing..." : "Resync feed"}
           </button>
         </form>
 
