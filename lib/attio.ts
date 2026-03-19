@@ -143,6 +143,9 @@ export async function deleteCompany(apiKey: string, recordId: string) {
 
   if (!response.ok) {
     const json = (await response.json().catch(() => ({}))) as Record<string, any>;
+    if (response.status === 404) {
+      return;
+    }
     throw new Error(json?.message ?? json?.error ?? `Attio returned ${response.status}`);
   }
 }

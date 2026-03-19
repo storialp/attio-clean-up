@@ -24,6 +24,7 @@ export function CleanupDeck() {
   const dragXRef = useRef(0);
   const toastTimerRef = useRef<number | null>(null);
   const deckRef = useRef<SimplifiedCompany[]>([]);
+  const hiddenIdsRef = useRef<Set<string>>(new Set());
   const isLoadingRef = useRef(false);
   const isSwipingRef = useRef(false);
 
@@ -85,7 +86,12 @@ export function CleanupDeck() {
         },
         body: JSON.stringify({
           sync: reset,
-          excludeIds: reset ? [] : deckRef.current.map((company) => company.id),
+          excludeIds: [
+            ...new Set([
+              ...(reset ? [] : deckRef.current.map((company) => company.id)),
+              ...hiddenIdsRef.current,
+            ]),
+          ],
         }),
       });
 
@@ -99,7 +105,12 @@ export function CleanupDeck() {
       }
 
       const companies = payload.companies ?? [];
-      const nextDeck = reset ? companies : [...deckRef.current, ...companies];
+      const seenIds = new Set([
+        ...deckRef.current.map((company) => company.id),
+        ...hiddenIdsRef.current,
+      ]);
+      const filteredCompanies = companies.filter((company) => !seenIds.has(company.id));
+      const nextDeck = reset ? filteredCompanies : [...deckRef.current, ...filteredCompanies];
       deckRef.current = nextDeck;
       setDeck(nextDeck);
       setStatus(
@@ -137,6 +148,8 @@ export function CleanupDeck() {
 
   async function handleLoadSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    hiddenIdsRef.current = new Set();
+    deckRef.current = [];
     setDeck([]);
     setDragX(0);
     dragXRef.current = 0;
@@ -152,6 +165,7 @@ export function CleanupDeck() {
     const company = deckRef.current[0];
     const remainingDeck = deckRef.current.slice(1);
     const previousDeck = deckRef.current;
+    hiddenIdsRef.current.add(company.id);
 
     isSwipingRef.current = true;
     setIsSwiping(true);
@@ -201,6 +215,7 @@ export function CleanupDeck() {
         void refreshLog();
       }
     } catch (error) {
+      hiddenIdsRef.current.delete(company.id);
       deckRef.current = previousDeck;
       setDeck(previousDeck);
       if (action === "delete") {
