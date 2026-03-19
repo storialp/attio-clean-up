@@ -105,6 +105,9 @@ export async function upsertCachedCompanies(companies: SimplifiedCompany[]) {
 export async function listPendingCompanies(limit = 25, excludeIds: string[] = []): Promise<SimplifiedCompany[]> {
   await ensureDeletionLogTable();
   const sql = getSql();
+  const exclusionClause = excludeIds.length
+    ? sql`and record_id not in ${sql(excludeIds)}`
+    : sql``;
 
   const rows = await sql<
     Array<{
@@ -129,7 +132,7 @@ export async function listPendingCompanies(limit = 25, excludeIds: string[] = []
       raw_payload
     from cached_companies
     where status = 'pending'
-      ${excludeIds.length ? sql`and not (record_id = any(${sql.array(excludeIds, "text")}))` : sql``}
+      ${exclusionClause}
     order by random()
     limit ${limit}
   `;
